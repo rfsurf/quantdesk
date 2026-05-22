@@ -1,0 +1,19 @@
+[Unit]
+Description=QuantDesk Celery Beat (定时任务调度)
+After=network.target redis.service postgres.service
+
+[Service]
+Type=simple
+User=robin
+Group=robin
+WorkingDirectory=/home/robin/桌面/quantdesk
+Environment="QUANTDESK_DEBUG=true"
+Environment="QUANTDESK_JWT_SECRET=quantdesk-jwt-secret-2024-production-key-64chars"
+Environment="QUANTDESK_DATABASE_URL_SYNC=postgresql://quantdesk:quantdesk2024@localhost:5432/quantdesk"
+Environment="QUANTDESK_REDIS_URL=redis://localhost:6379/0"
+ExecStart=/usr/bin/python3 -m celery -A backend.tasks beat --loglevel=info
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=QuantDesk Backend API Server
+After=network.target redis.service postgres.service
+
+[Service]
+Type=simple
+User=robin
+Group=robin
+WorkingDirectory=/home/robin/桌面/quantdesk
+Environment="QUANTDESK_DEBUG=true"
+Environment="QUANTDESK_JWT_SECRET=quantdesk-jwt-secret-2024-production-key-64chars"
+Environment="QUANTDESK_USE_POSTGRES=true"
+ExecStart=/usr/bin/python3 -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
