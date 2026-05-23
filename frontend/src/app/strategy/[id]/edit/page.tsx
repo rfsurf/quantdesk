@@ -446,19 +446,19 @@ export default function StrategyEditorPage() {
               action: "输入策略名称",
             },
             {
-              selector: "h3",
+              selector: ".factor-panel-title",
               title: "因子面板",
               content: "左侧是因子库，包含技术指标、行情统计等因子。拖拽因子到画布上开始搭建策略。",
               action: "浏览可用的因子",
             },
             {
-              selector: "button svg.lucide-play",
+              selector: "button:has([data-lucine='play'])",
               title: "配置回测参数",
               content: "底部工具栏可以设置初始资金、费率、止损止盈等参数。",
               action: "调整参数后点击「开始回测」",
             },
             {
-              selector: "button svg.lucide-save",
+              selector: "button:has([data-lucine='save'])",
               title: "保存策略",
               content: "随时保存你的策略，每次保存都会生成版本历史，方便回退。",
               action: "点击保存按钮",

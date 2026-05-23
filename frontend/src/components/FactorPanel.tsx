@@ -77,11 +77,11 @@ export default function FactorPanel({ onAddFactor }: Props) {
     : FACTOR_GROUPS;
 
   return (
-    <div className="w-60 border-r border-gray-100 dark:border-navy-700/50
+    <div className="factor-panel w-60 border-r border-gray-100 dark:border-navy-700/50
       bg-white/80 dark:bg-navy-800/80 backdrop-blur-sm flex flex-col h-full"
     >
       <div className="p-3 border-b border-gray-100 dark:border-navy-700/50">
-        <div className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">因子面板</div>
+        <div className="factor-panel-title text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">因子面板</div>
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
