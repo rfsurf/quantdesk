@@ -2,17 +2,17 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { adminAPI } from "@/lib/api";
+import { adminAPI, syncAPI } from "@/lib/api";
 import {
   LayoutDashboard, Users, Code2, BarChart3, Key,
   Trash2, RefreshCw, Loader2, Shield, ArrowLeft,
-  Activity, Globe, Database, Layers,
-  CheckCircle, XCircle,
+  Activity, Globe, Database, Layers, CloudDownload,
+  CheckCircle, XCircle, Play, Clock,
 } from "lucide-react";
 import clsx from "clsx";
 import toast from "react-hot-toast";
 
-type Tab = "overview" | "users" | "strategies" | "backtests" | "tokens";
+type Tab = "overview" | "users" | "strategies" | "backtests" | "tokens" | "sync";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -22,6 +22,8 @@ export default function AdminPage() {
   const [strategies, setStrategies] = useState<any[]>([]);
   const [backtests, setBacktests] = useState<any[]>([]);
   const [tokens, setTokens] = useState<any[]>([]);
+  const [syncStatus, setSyncStatus] = useState<any>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -35,18 +37,20 @@ export default function AdminPage() {
     setLoading(true);
     setError("");
     try {
-      const [s, u, str, bt, tok] = await Promise.all([
+      const [s, u, str, bt, tok, sync] = await Promise.all([
         adminAPI.stats(),
         adminAPI.users(),
         adminAPI.strategies(),
         adminAPI.backtests(),
         adminAPI.agentTokens(),
+        syncAPI.status("market_daily").catch(() => ({ data: { status: "never_synced" } })),
       ]);
       setStats(s.data);
       setUsers(u.data.items || []);
       setStrategies(str.data.items || []);
       setBacktests(bt.data.items || []);
       setTokens(tok.data.items || []);
+      setSyncStatus(sync.data);
     } catch (err: any) {
       const msg = err.response?.data?.detail || "无权限访问管理后台";
       if (err.response?.status === 403) {
@@ -80,6 +84,24 @@ export default function AdminPage() {
     if (!confirm(`确定吊销 Agent Token "${name}"？`)) return;
     try { await adminAPI.revokeAgentToken(tid); toast.success("Token 已吊销"); loadAll(); }
     catch { toast.error("吊销失败"); }
+  };
+
+  const handleTriggerSync = async (type: "market_daily" | "factors") => {
+    setSyncLoading(true);
+    try {
+      const res = type === "market_daily"
+        ? await syncAPI.triggerMarketDaily()
+        : await syncAPI.triggerFactors();
+      toast.success(`同步任务已触发: ${res.data.task_id}`);
+      // 3秒后刷新状态
+      setTimeout(() => {
+        syncAPI.status("market_daily").then(r => setSyncStatus(r.data));
+        setSyncLoading(false);
+      }, 3000);
+    } catch {
+      toast.error("触发同步失败");
+      setSyncLoading(false);
+    }
   };
 
   if (loading) {
@@ -116,6 +138,7 @@ export default function AdminPage() {
     { key: "strategies", label: "策略", icon: Code2, count: strategies.length },
     { key: "backtests", label: "回测", icon: BarChart3, count: backtests.length },
     { key: "tokens", label: "Token", icon: Key, count: tokens.length },
+    { key: "sync", label: "数据同步", icon: CloudDownload },
   ];
 
   return (
@@ -422,6 +445,100 @@ export default function AdminPage() {
             )}
             emptyText="暂无 Token"
           />
+        )}
+
+        {/* Sync Tab */}
+        {tab === "sync" && (
+          <div className="space-y-6 animate-fade-in">
+            {/* Sync Status */}
+            <div className="card-glass p-6">
+              <h3 className="font-bold text-gray-900 dark:text-white mb-4">行情数据同步状态</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 rounded-[14px] bg-white/50 dark:bg-navy-700/50">
+                  <div className="text-xs text-gray-500 mb-1">状态</div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2.5 h-2.5 rounded-full ${
+                      syncStatus?.status === "success" ? "bg-profit" :
+                      syncStatus?.status === "running" ? "bg-amber-500 animate-pulse" :
+                      syncStatus?.status === "failed" ? "bg-loss" : "bg-gray-400"
+                    }`} />
+                    <span className="font-medium text-gray-800 dark:text-white">
+                      {syncStatus?.status === "success" ? "同步成功" :
+                       syncStatus?.status === "running" ? "正在同步" :
+                       syncStatus?.status === "failed" ? "同步失败" :
+                       syncStatus?.status === "skipped" ? "已跳过" : "从未同步"}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-4 rounded-[14px] bg-white/50 dark:bg-navy-700/50">
+                  <div className="text-xs text-gray-500 mb-1">最后同步</div>
+                  <span className="font-medium text-gray-800 dark:text-white">
+                    {syncStatus?.last_sync ? new Date(syncStatus.last_sync).toLocaleString("zh-CN") : "无"}
+                  </span>
+                </div>
+                <div className="p-4 rounded-[14px] bg-white/50 dark:bg-navy-700/50">
+                  <div className="text-xs text-gray-500 mb-1">股票数</div>
+                  <span className="font-medium text-gray-800 dark:text-white">{syncStatus?.symbols_synced || 0}</span>
+                </div>
+                <div className="p-4 rounded-[14px] bg-white/50 dark:bg-navy-700/50">
+                  <div className="text-xs text-gray-500 mb-1">记录数</div>
+                  <span className="font-medium text-gray-800 dark:text-white">{syncStatus?.records_added || 0}</span>
+                </div>
+              </div>
+              {syncStatus?.error_message && (
+                <div className="mt-4 p-3 rounded-[12px] bg-red-50 dark:bg-red-900/20 text-loss text-sm">
+                  错误: {syncStatus.error_message}
+                </div>
+              )}
+            </div>
+
+            {/* Trigger Buttons */}
+            <div className="card-glass p-6">
+              <h3 className="font-bold text-gray-900 dark:text-white mb-4">手动触发同步</h3>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => handleTriggerSync("market_daily")}
+                  disabled={syncLoading}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-brand-gradient text-white rounded-[14px] font-medium shadow-brand-glow-sm hover:shadow-brand-glow transition disabled:opacity-50"
+                >
+                  {syncLoading ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+                  触发行情同步
+                </button>
+                <button
+                  onClick={() => handleTriggerSync("factors")}
+                  disabled={syncLoading}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-purple-500 text-white rounded-[14px] font-medium hover:bg-purple-600 transition disabled:opacity-50"
+                >
+                  {syncLoading ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} />}
+                  触发因子预计算
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-3">
+                行情同步将在每日凌晨 2:00 自动执行（交易日）。手动触发用于补数据或测试。
+              </p>
+            </div>
+
+            {/* Schedule Info */}
+            <div className="card-glass p-6">
+              <h3 className="font-bold text-gray-900 dark:text-white mb-4">自动同步配置</h3>
+              <div className="grid md:grid-cols-2 gap-4 text-sm">
+                <div className="flex items-center gap-3 p-3 rounded-[12px] bg-white/50 dark:bg-navy-700/50">
+                  <Clock size={18} className="text-brand-500" />
+                  <div>
+                    <div className="font-medium text-gray-800 dark:text-white">行情同步</div>
+                    <div className="text-gray-400">每日 02:00 (北京时间)</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-[12px] bg-white/50 dark:bg-navy-700/50">
+                  <Clock size={18} className="text-purple-500" />
+                  <div>
+                    <div className="font-medium text-gray-800 dark:text-white">因子预计算</div>
+                    <div className="text-gray-400">每日 03:00 (北京时间)</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

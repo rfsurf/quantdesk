@@ -143,3 +143,10 @@ export const adminAPI = {
   agentTokens: () => api.get("/api/admin/agent-tokens"),
   revokeAgentToken: (id: string) => api.delete(`/api/admin/agent-tokens/${id}`),
 };
+
+// ---- Sync ----
+export const syncAPI = {
+  status: (syncType = "market_daily") => api.get(`/api/admin/sync/status?sync_type=${syncType}`),
+  triggerMarketDaily: () => api.post("/api/admin/sync/market-daily"),
+  triggerFactors: () => api.post("/api/admin/sync/factors"),
+};
