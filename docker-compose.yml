@@ -25,7 +25,7 @@ services:
     build: ./backend
     command: celery -A backend.tasks worker --loglevel=info --concurrency=2
     environment:
-      DATABASE_URL_SYNC: postgresql://quantdesk:CHANGE_ME@postgres:5432/quantdesk
+      DATABASE_URL_SYNC: postgresql://quantdesk:quantdesk2024@postgres:5432/quantdesk
       REDIS_URL: redis://redis:6379/0
     depends_on: [postgres, redis]
 
@@ -33,7 +33,7 @@ services:
     build: ./backend
     command: celery -A backend.tasks beat --loglevel=info
     environment:
-      DATABASE_URL_SYNC: postgresql://quantdesk:CHANGE_ME@postgres:5432/quantdesk
+      DATABASE_URL_SYNC: postgresql://quantdesk:quantdesk2024@postgres:5432/quantdesk
       REDIS_URL: redis://redis:6379/0
     depends_on: [postgres, redis]
 

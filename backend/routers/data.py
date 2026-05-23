@@ -5,12 +5,14 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse, Response
+from sqlalchemy import text
 
 from ..schemas import HealthResponse
 from ..dependencies import (
     get_current_user_id, _strategies, _backtests,
     find_latest_backtest,
 )
+from ..database import sync_engine
 from ..scorecard import StrategyScorecard
 
 router = APIRouter(tags=["Data"])
@@ -25,9 +27,27 @@ start_time = time.time()
 @router.get("/api/health", response_model=HealthResponse)
 async def health_check():
     uptime = (time.time() - start_time) / 3600
+
+    # 获取最后一次成功同步的时间
+    last_sync = None
+    try:
+        with sync_engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT finished_at FROM sync_status
+                    WHERE sync_type = 'market_daily' AND status = 'success'
+                    ORDER BY finished_at DESC LIMIT 1
+                """)
+            ).fetchone()
+            if result and result[0]:
+                last_sync = result[0].isoformat()
+    except Exception:
+        pass  # 表可能不存在
+
     return HealthResponse(
         status="ok", db="connected", redis="connected",
         celery_workers=2, uptime_hours=round(uptime, 1),
+        last_data_sync=last_sync,
     )
 
 

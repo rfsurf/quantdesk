@@ -273,6 +273,23 @@ class HealthResponse(BaseModel):
     uptime_hours: float = 0.0
 
 
+class SyncTriggerResponse(BaseModel):
+    task_id: str
+    sync_type: str  # 'incremental' | 'full' | 'factors'
+    status: str = "triggered"
+    message: str
+
+
+class SyncStatusResponse(BaseModel):
+    status: str  # 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'never_synced'
+    last_sync: Optional[datetime] = None
+    symbols_synced: Optional[int] = None
+    records_added: Optional[int] = None
+    error_message: Optional[str] = None
+    trigger_source: Optional[str] = None
+    message: Optional[str] = None
+
+
 # ------------------------------------------------------------------
 # Pagination
 # ------------------------------------------------------------------

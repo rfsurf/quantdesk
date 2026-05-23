@@ -1,14 +1,17 @@
-"""Admin 路由 — 管理后台: 用户/策略/回测/Token 管理 + 审计日志"""
+"""Admin 路由 — 管理后台: 用户/策略/回测/Token 管理 + 审计日志 + 数据同步"""
 
 import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
 
 from ..dependencies import (
     get_current_user_id, check_admin, find_user_by_id, set_admin,
     _users, _strategies, _backtests, _agent_tokens, _agent_audit,
 )
+from ..schemas import SyncTriggerResponse, SyncStatusResponse
+from ..database import sync_engine
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -170,3 +173,77 @@ async def admin_revoke_agent_token(tid: str, user_id: str = Depends(get_current_
             t["is_revoked"] = True
             return
     raise HTTPException(404)
+
+
+# ====================================================================
+# 数据同步管理
+# ====================================================================
+
+@router.post("/sync/market-daily", response_model=SyncTriggerResponse)
+async def admin_trigger_market_sync(
+    user_id: str = Depends(get_current_user_id),
+    full_sync: bool = False,
+):
+    """手动触发行情数据同步"""
+    check_admin(user_id)
+
+    from ..tasks import sync_market_data
+
+    task = sync_market_data.apply_async(args=["manual"])
+    return SyncTriggerResponse(
+        task_id=str(task.id),
+        sync_type="incremental" if not full_sync else "full",
+        status="triggered",
+        message="增量同步已触发，请通过 /sync/status 查看进度",
+    )
+
+
+@router.post("/sync/factors", response_model=SyncTriggerResponse)
+async def admin_trigger_factors_sync(user_id: str = Depends(get_current_user_id)):
+    """手动触发因子预计算"""
+    check_admin(user_id)
+
+    from ..tasks import precompute_factors_task
+
+    task = precompute_factors_task.apply_async(args=["manual"])
+    return SyncTriggerResponse(
+        task_id=str(task.id),
+        sync_type="factors",
+        status="triggered",
+        message="因子预计算已触发",
+    )
+
+
+@router.get("/sync/status", response_model=SyncStatusResponse)
+async def admin_get_sync_status(
+    user_id: str = Depends(get_current_user_id),
+    sync_type: str = "market_daily",
+):
+    """获取最近同步状态"""
+    check_admin(user_id)
+
+    with sync_engine.connect() as conn:
+        result = conn.execute(
+            text("""
+                SELECT * FROM sync_status
+                WHERE sync_type = :stype
+                ORDER BY created_at DESC LIMIT 1
+            """),
+            {"stype": sync_type},
+        ).fetchone()
+
+        if result is None:
+            return SyncStatusResponse(
+                status="never_synced",
+                message="从未执行同步",
+            )
+
+        r = result._mapping
+        return SyncStatusResponse(
+            status=r["status"],
+            last_sync=r["finished_at"],
+            symbols_synced=r["symbols_synced"],
+            records_added=r["records_added"],
+            error_message=r["error_message"],
+            trigger_source=r["trigger_source"],
+        )

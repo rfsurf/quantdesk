@@ -79,6 +79,32 @@ def sync_incremental():
     logger.info(f"增量同步完成: {success}/{len(symbols)} 只")
 
 
+def sync_incremental_with_stats() -> dict:
+    """增量同步并返回统计信息（供 Celery 任务使用）"""
+    import akshare as ak
+
+    today = datetime.now().strftime("%Y%m%d")
+
+    with sync_engine.connect() as conn:
+        max_date = conn.execute(
+            text("SELECT COALESCE(MAX(trade_date), '2020-01-01') FROM market_daily")
+        ).fetchone()[0]
+        if isinstance(max_date, str):
+            max_date = pd.Timestamp(max_date).to_pydatetime()
+        start_date = (max_date + timedelta(days=1)).strftime("%Y%m%d")
+        if start_date >= today:
+            logger.info("数据已是最新")
+            return {"symbols": 0, "records": 0, "skipped": True}
+
+    symbols = _get_all_symbols()
+    logger.info(f"增量同步: {start_date} ~ {today}, {len(symbols)} 只股票")
+
+    success, total_records = _sync_symbols_range_with_stats(symbols, start_date, today)
+    logger.info(f"增量同步完成: {success}/{len(symbols)} 只, {total_records} 条记录")
+
+    return {"symbols": success, "records": total_records, "total_symbols": len(symbols)}
+
+
 def sync_full(start_year: int = 2020):
     """全量同步: 拉取全部历史数据"""
     import akshare as ak
@@ -156,6 +182,60 @@ def _sync_symbols_range(symbols: List[str], start_date: str, end_date: str) -> i
         time.sleep(AKSHARE_DELAY)
 
     return success
+
+
+def _sync_symbols_range_with_stats(symbols: List[str], start_date: str, end_date: str) -> tuple:
+    """批量同步并返回 (成功数, 总记录数)"""
+    import akshare as ak
+
+    success = 0
+    total_records = 0
+    batch = []
+    table_name = "market_daily"
+    max_retries = 3
+
+    for i, symbol in enumerate(symbols):
+        for attempt in range(max_retries):
+            try:
+                sina_sym = _to_sina_symbol(symbol)
+                df = ak.stock_zh_a_daily(
+                    symbol=sina_sym,
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust="qfq",
+                )
+                if df is None or df.empty:
+                    break
+
+                record_count = len(df)
+                for _, row in df.iterrows():
+                    batch.append({
+                        "symbol": symbol,
+                        "trade_date": pd.Timestamp(row["date"]).to_pydatetime().date(),
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "volume": int(row["volume"]),
+                        "amount": float(row.get("amount", 0)),
+                    })
+                success += 1
+                total_records += record_count
+                break
+            except Exception:
+                if attempt < max_retries - 1:
+                    time.sleep(1.5 * (attempt + 1))
+
+        if len(batch) >= 5000 or i == len(symbols) - 1:
+            _batch_upsert(table_name, batch)
+            batch = []
+
+        if (i + 1) % 200 == 0:
+            logger.info(f"  进度: {i+1}/{len(symbols)} ({success} 成功, {total_records} 条)")
+
+        time.sleep(AKSHARE_DELAY)
+
+    return success, total_records
 
 
 def _batch_upsert(table_name: str, rows: list[dict]):
@@ -267,6 +347,75 @@ def precompute_factors():
 
     _batch_upsert("factor_cache", batch)
     logger.info(f"因子预计算完成: {processed}/{len(symbols)}")
+
+
+def precompute_factors_with_stats() -> dict:
+    """预计算因子并返回统计信息（供 Celery 任务使用）"""
+    with sync_engine.connect() as conn:
+        symbols = [
+            row[0] for row in
+            conn.execute(text("SELECT DISTINCT symbol FROM market_daily ORDER BY symbol")).fetchall()
+        ]
+
+    logger.info(f"因子预计算: {len(symbols)} 只股票")
+
+    FIELDS = [
+        "ma_5", "ma_10", "ma_20", "ma_60", "ma_120",
+        "ema_12", "ema_26",
+        "volume_ma_5", "volume_ma_20",
+        "rsi_14",
+        "macd", "macd_signal", "macd_hist",
+        "bb_upper", "bb_lower", "bb_width",
+        "atr_14",
+        "kdj_k", "kdj_d", "kdj_j",
+        "wr_14",
+        "volatility_20",
+        "momentum_5", "momentum_20", "momentum_60",
+        "volume_ratio",
+    ]
+
+    batch = []
+    processed = 0
+    total_records = 0
+
+    for symbol in symbols:
+        try:
+            df = _load_symbol_data(symbol)
+            if df is None or len(df) < 30:
+                continue
+
+            facs = compute_all_factors(
+                df["open"], df["high"], df["low"],
+                df["close"], df["volume"],
+            )
+
+            for _, row in df.iterrows():
+                td = row["trade_date"]
+                for fname in FIELDS:
+                    if fname in facs:
+                        val = facs[fname].get(td)
+                        if val is not None and not pd.isna(val):
+                            batch.append({
+                                "symbol": symbol,
+                                "trade_date": td,
+                                "factor_name": fname,
+                                "factor_value": float(val),
+                            })
+                            total_records += 1
+
+            processed += 1
+        except Exception:
+            continue
+
+        if len(batch) >= 10000:
+            _batch_upsert("factor_cache", batch)
+            batch = []
+            logger.info(f"  进度: {processed}/{len(symbols)}")
+
+    _batch_upsert("factor_cache", batch)
+    logger.info(f"因子预计算完成: {processed}/{len(symbols)}, {total_records} 条记录")
+
+    return {"symbols": processed, "records": total_records, "total_symbols": len(symbols)}
 
 
 def _load_symbol_data(symbol: str) -> pd.DataFrame:

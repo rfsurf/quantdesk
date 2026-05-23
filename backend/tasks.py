@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from celery import Celery
+from celery.schedules import crontab
 from celery.utils.log import get_task_logger
 
 logger = get_task_logger(__name__)
@@ -25,17 +26,17 @@ celery_app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=200,
-    # Celery Beat 定时任务
+    # Celery Beat 定时任务 - Crontab 调度（北京时间）
     beat_schedule={
-        # 每日凌晨2点同步行情数据
+        # 每个交易日凌晨 2:00 同步行情数据
         "sync-daily-market": {
             "task": "backend.tasks.sync_market_data",
-            "schedule": 60.0 * 60.0 * 2,  # 每2小时（测试用，生产改为凌晨2点）
+            "schedule": crontab(hour=2, minute=0, day_of_week="1-5"),  # 周一至周五
         },
-        # 每6小时预计算因子
+        # 每个交易日凌晨 3:00 预计算因子（同步完成后）
         "precompute-factors": {
             "task": "backend.tasks.precompute_factors_task",
-            "schedule": 60.0 * 60.0 * 6,
+            "schedule": crontab(hour=3, minute=0, day_of_week="1-5"),
         },
     },
 )
@@ -214,27 +215,131 @@ def _apply_params(conditions, key, value):
 # 定时任务（Celery Beat）
 # ====================================================================
 
-@celery_app.task
-def sync_market_data():
-    """定时同步行情数据（每日凌晨）"""
-    from .data_pipeline import sync_incremental
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=300)
+def sync_market_data(self, trigger_source: str = "scheduled"):
+    """定时同步行情数据（每日凌晨）- 增强版"""
+    from .data_pipeline import sync_incremental_with_stats
+    from .trading_calendar import is_trading_day
+    from .database import sync_engine
+    from sqlalchemy import text
+
+    today = datetime.now(timezone.utc).date()
+
+    # 检查是否为交易日
+    if not is_trading_day(today):
+        logger.info(f"Skipping sync: {today} is not a trading day")
+        return {"status": "skipped", "reason": "non_trading_day"}
+
+    # 创建同步状态记录
+    sync_id = None
+    with sync_engine.connect() as conn:
+        result = conn.execute(
+            text("""
+                INSERT INTO sync_status (sync_type, status, started_at, trigger_source)
+                VALUES ('market_daily', 'running', NOW(), :source)
+                RETURNING id
+            """),
+            {"source": trigger_source},
+        )
+        sync_id = result.fetchone()[0]
+        conn.commit()
+
     try:
-        sync_incremental()
-        logger.info("market_data_sync_done")
-        return {"status": "done"}
+        # 执行同步
+        stats = sync_incremental_with_stats()
+
+        # 更新状态为成功
+        with sync_engine.connect() as conn:
+            conn.execute(
+                text("""
+                    UPDATE sync_status
+                    SET status='success', finished_at=NOW(),
+                        symbols_synced=:sym, records_added=:rec
+                    WHERE id=:id
+                """),
+                {"id": sync_id, "sym": stats["symbols"], "rec": stats["records"]},
+            )
+            conn.commit()
+
+        logger.info(f"market_data_sync_done: {stats['symbols']} symbols, {stats['records']} records")
+        return {"status": "success", **stats}
+
     except Exception as e:
         logger.error(f"market_data_sync_failed: {e}")
+
+        # 更新状态为失败
+        with sync_engine.connect() as conn:
+            conn.execute(
+                text("""
+                    UPDATE sync_status
+                    SET status='failed', finished_at=NOW(), error_message=:err
+                    WHERE id=:id
+                """),
+                {"id": sync_id, "err": str(e)},
+            )
+            conn.commit()
+
+        # 自动触发任务才重试
+        if trigger_source == "scheduled" and self.request.retries < self.max_retries:
+            raise self.retry(exc=e)
+
         return {"status": "failed", "error": str(e)}
 
 
-@celery_app.task
-def precompute_factors_task():
-    """定时预计算因子"""
-    from .data_pipeline import precompute_factors
+@celery_app.task(bind=True, max_retries=2, default_retry_delay=300)
+def precompute_factors_task(self, trigger_source: str = "scheduled"):
+    """定时预计算因子 - 增强版"""
+    from .data_pipeline import precompute_factors_with_stats
+    from .database import sync_engine
+    from sqlalchemy import text
+
+    # 创建状态记录
+    sync_id = None
+    with sync_engine.connect() as conn:
+        result = conn.execute(
+            text("""
+                INSERT INTO sync_status (sync_type, status, started_at, trigger_source)
+                VALUES ('factor_cache', 'running', NOW(), :source)
+                RETURNING id
+            """),
+            {"source": trigger_source},
+        )
+        sync_id = result.fetchone()[0]
+        conn.commit()
+
     try:
-        precompute_factors()
-        logger.info("factors_precomputed")
-        return {"status": "done"}
+        stats = precompute_factors_with_stats()
+
+        with sync_engine.connect() as conn:
+            conn.execute(
+                text("""
+                    UPDATE sync_status
+                    SET status='success', finished_at=NOW(),
+                        symbols_synced=:sym, records_added=:rec
+                    WHERE id=:id
+                """),
+                {"id": sync_id, "sym": stats["symbols"], "rec": stats["records"]},
+            )
+            conn.commit()
+
+        logger.info(f"factors_precomputed: {stats['symbols']} symbols")
+        return {"status": "success", **stats}
+
     except Exception as e:
         logger.error(f"factors_precompute_failed: {e}")
+
+        with sync_engine.connect() as conn:
+            conn.execute(
+                text("""
+                    UPDATE sync_status
+                    SET status='failed', finished_at=NOW(), error_message=:err
+                    WHERE id=:id
+                """),
+                {"id": sync_id, "err": str(e)},
+            )
+            conn.commit()
+
+        if trigger_source == "scheduled" and self.request.retries < self.max_retries:
+            raise self.retry(exc=e)
+
         return {"status": "failed", "error": str(e)}

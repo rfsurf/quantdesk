@@ -273,3 +273,21 @@ class AIConversation(Base):
     messages      = Column(JSON, nullable=False)
     result_config = Column(JSON)
     created_at    = Column(DateTime(timezone=True), default=_now)
+
+
+# 17. Sync Status (数据同步状态追踪)
+class SyncStatus(Base):
+    __tablename__ = "sync_status"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    sync_type      = Column(String(20), nullable=False)  # 'market_daily' | 'factor_cache'
+    status         = Column(String(20), default="pending")  # 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+    started_at     = Column(DateTime(timezone=True))
+    finished_at    = Column(DateTime(timezone=True))
+    symbols_synced = Column(Integer, default=0)
+    records_added  = Column(Integer, default=0)
+    error_message  = Column(Text)
+    trigger_source = Column(String(20))  # 'scheduled' | 'manual' | 'cli'
+    created_at     = Column(DateTime(timezone=True), default=_now)
+
+    __table_args__ = (Index("ix_sync_status_type_finished", "sync_type", "finished_at"),)
