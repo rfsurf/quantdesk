@@ -14,8 +14,39 @@ from ..dependencies import (
 from ..sse_handler import SSEMessage
 from ..app import limiter
 from ..tasks import run_backtest, celery_app
+from ..config import settings
 
 router = APIRouter(prefix="/api", tags=["Backtest"])
+
+
+def find_strategy_by_id(strategy_id: str, user_id: str) -> dict | None:
+    """查找策略 - 支持 PostgreSQL 和内存模式"""
+    if settings.USE_POSTGRES:
+        from ..database import sync_engine
+        from sqlalchemy import text
+        try:
+            with sync_engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT id, user_id, name, config, status FROM strategies WHERE id = :sid"),
+                    {"sid": strategy_id}
+                )
+                row = result.fetchone()
+                if row and str(row[1]) == user_id:
+                    return {
+                        "id": str(row[0]),
+                        "user_id": str(row[1]),
+                        "name": row[2],
+                        "config": row[3] or {},
+                        "status": row[4] or "draft",
+                    }
+        except Exception:
+            pass
+        return None
+    else:
+        s = _strategies.get(strategy_id)
+        if s and s["user_id"] == user_id:
+            return s
+        return None
 
 
 @router.post("/strategies/{sid}/backtest", response_model=BacktestTaskResponse)
@@ -26,9 +57,9 @@ async def trigger_backtest(
     body: BacktestRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    s = _strategies.get(sid)
-    if not s or s["user_id"] != user_id:
-        raise HTTPException(404)
+    s = find_strategy_by_id(sid, user_id)
+    if not s:
+        raise HTTPException(404, "策略不存在")
 
     task_id = str(uuid.uuid4())
     _backtests[task_id] = {
