@@ -12,6 +12,7 @@ from ..dependencies import (
 )
 from ..schemas import SyncTriggerResponse, SyncStatusResponse
 from ..database import sync_engine
+from ..config import settings
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -22,22 +23,49 @@ start_time = time.time()
 async def admin_stats(user_id: str = Depends(get_current_user_id)):
     check_admin(user_id)
     uptime = (time.time() - start_time) / 3600
-    done_bt = [b for b in _backtests.values() if b["status"] == "done"]
-    failed_bt = [b for b in _backtests.values() if b["status"] == "failed"]
-    admin_count = len([u for u in _users.values() if u.get("is_admin")])
-    return {
-        "users": len(_users),
-        "admins": admin_count,
-        "strategies": len(_strategies),
-        "backtests": len(_backtests),
-        "backtests_done": len(done_bt),
-        "backtests_failed": len(failed_bt),
-        "agent_tokens": len([t for t in _agent_tokens.values() if not t.get("is_revoked")]),
-        "agent_tokens_revoked": len([t for t in _agent_tokens.values() if t.get("is_revoked")]),
-        "api_health": "ok",
-        "uptime_hours": round(uptime, 1),
-        "audit_logs": len(_agent_audit),
-    }
+
+    if settings.USE_POSTGRES:
+        # PostgreSQL 模式：从数据库统计
+        with sync_engine.connect() as conn:
+            users_count = conn.execute(text("SELECT COUNT(*) FROM users")).scalar() or 0
+            admins_count = conn.execute(text("SELECT COUNT(*) FROM users WHERE is_admin = true")).scalar() or 0
+            strategies_count = conn.execute(text("SELECT COUNT(*) FROM strategies")).scalar() or 0
+            backtests_count = conn.execute(text("SELECT COUNT(*) FROM backtests")).scalar() or 0
+            backtests_done = conn.execute(text("SELECT COUNT(*) FROM backtests WHERE status = 'done'")).scalar() or 0
+            backtests_failed = conn.execute(text("SELECT COUNT(*) FROM backtests WHERE status = 'failed'")).scalar() or 0
+            tokens_active = conn.execute(text("SELECT COUNT(*) FROM agent_tokens WHERE is_revoked = false")).scalar() or 0
+            tokens_revoked = conn.execute(text("SELECT COUNT(*) FROM agent_tokens WHERE is_revoked = true")).scalar() or 0
+        return {
+            "users": users_count,
+            "admins": admins_count,
+            "strategies": strategies_count,
+            "backtests": backtests_count,
+            "backtests_done": backtests_done,
+            "backtests_failed": backtests_failed,
+            "agent_tokens": tokens_active,
+            "agent_tokens_revoked": tokens_revoked,
+            "api_health": "ok",
+            "uptime_hours": round(uptime, 1),
+            "audit_logs": len(_agent_audit),
+        }
+    else:
+        # 内存模式
+        done_bt = [b for b in _backtests.values() if b["status"] == "done"]
+        failed_bt = [b for b in _backtests.values() if b["status"] == "failed"]
+        admin_count = len([u for u in _users.values() if u.get("is_admin")])
+        return {
+            "users": len(_users),
+            "admins": admin_count,
+            "strategies": len(_strategies),
+            "backtests": len(_backtests),
+            "backtests_done": len(done_bt),
+            "backtests_failed": len(failed_bt),
+            "agent_tokens": len([t for t in _agent_tokens.values() if not t.get("is_revoked")]),
+            "agent_tokens_revoked": len([t for t in _agent_tokens.values() if t.get("is_revoked")]),
+            "api_health": "ok",
+            "uptime_hours": round(uptime, 1),
+            "audit_logs": len(_agent_audit),
+        }
 
 
 @router.get("/audit-logs")

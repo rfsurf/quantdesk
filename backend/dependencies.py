@@ -84,14 +84,68 @@ def get_optional_user(
 # ---------------------------------------------------------------------------
 
 def find_user_by_id(user_id: str) -> Optional[dict]:
-    for u in _users.values():
-        if u["id"] == user_id:
-            return u
-    return None
+    """查找用户 - 支持 PostgreSQL 和内存模式"""
+    if settings.USE_POSTGRES:
+        # PostgreSQL 模式：从数据库查询
+        from .database import sync_engine
+        from sqlalchemy import text
+        try:
+            with sync_engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT id, email, plan, is_admin, ai_api_key, ai_provider, ai_calls_count, created_at FROM users WHERE id = :uid"),
+                    {"uid": user_id}
+                )
+                row = result.fetchone()
+                if row:
+                    return {
+                        "id": str(row[0]),
+                        "email": row[1],
+                        "plan": row[2],
+                        "is_admin": row[3],
+                        "ai_api_key": row[4],
+                        "ai_provider": row[5],
+                        "ai_calls_count": row[6],
+                        "created_at": row[7].isoformat() if row[7] else None,
+                    }
+        except Exception:
+            pass
+        return None
+    else:
+        # 内存模式
+        for u in _users.values():
+            if u["id"] == user_id:
+                return u
+        return None
 
 
 def find_user_by_email(email: str) -> Optional[dict]:
-    return _users.get(email)
+    """查找用户 - 支持 PostgreSQL 和内存模式"""
+    if settings.USE_POSTGRES:
+        from .database import sync_engine
+        from sqlalchemy import text
+        try:
+            with sync_engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT id, email, plan, is_admin, ai_api_key, ai_provider, ai_calls_count, created_at FROM users WHERE email = :email"),
+                    {"email": email}
+                )
+                row = result.fetchone()
+                if row:
+                    return {
+                        "id": str(row[0]),
+                        "email": row[1],
+                        "plan": row[2],
+                        "is_admin": row[3],
+                        "ai_api_key": row[4],
+                        "ai_provider": row[5],
+                        "ai_calls_count": row[6],
+                        "created_at": row[7].isoformat() if row[7] else None,
+                    }
+        except Exception:
+            pass
+        return None
+    else:
+        return _users.get(email)
 
 
 # ---------------------------------------------------------------------------
