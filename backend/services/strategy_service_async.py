@@ -61,16 +61,17 @@ def list_user_strategies_pg(user_id: str, page: int = 1, page_size: int = 20) ->
 def create_strategy_pg(name: str, config: dict, user_id: str) -> dict:
     """创建新策略 - PostgreSQL"""
     sid = uuid.uuid4()
-    user_uuid = uuid.UUID(user_id)  # 转换为 UUID
+    user_uuid = uuid.UUID(user_id)
     now = datetime.now(timezone.utc)
+    config_json = json.dumps(config)
 
     with sync_engine.connect() as conn:
         conn.execute(
             text("""
                 INSERT INTO strategies (id, user_id, name, status, config, created_at, updated_at)
-                VALUES (:id, :user_id, :name, 'draft', :config::json, :created_at, :updated_at)
+                VALUES (:id, :user_id, :name, 'draft', CAST(:config AS json), :created_at, :updated_at)
             """),
-            {"id": sid, "user_id": user_uuid, "name": name, "config": json.dumps(config), "created_at": now, "updated_at": now}
+            {"id": sid, "user_id": user_uuid, "name": name, "config": config_json, "created_at": now, "updated_at": now}
         )
         conn.commit()
 
@@ -125,9 +126,10 @@ def update_strategy_pg(sid: str, user_id: str, name: Optional[str] = None, confi
             raise ValueError("策略不存在")
 
         now = datetime.now(timezone.utc)
+        config_json = json.dumps(config) if config else None
         conn.execute(
-            text("UPDATE strategies SET name = COALESCE(:name, name), config = COALESCE(:config::json, config), updated_at = :updated_at WHERE id = :sid"),
-            {"sid": sid, "name": name, "config": json.dumps(config) if config else None, "updated_at": now}
+            text("UPDATE strategies SET name = COALESCE(:name, name), config = COALESCE(CAST(:config AS json), config), updated_at = :updated_at WHERE id = :sid"),
+            {"sid": sid, "name": name, "config": config_json, "updated_at": now}
         )
         conn.commit()
 
