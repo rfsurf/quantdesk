@@ -57,6 +57,10 @@ export const authAPI = {
     api.post("/api/auth/register", { email, password, code }),
   login: (email: string, password: string) =>
     api.post("/api/auth/login", { email, password }),
+  refresh: (refreshToken: string) =>
+    api.post("/api/auth/refresh", { refresh_token: refreshToken }),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    api.post("/api/auth/change-password", { old_password: oldPassword, new_password: newPassword }),
 };
 
 // ---- Strategies ----
@@ -136,6 +140,7 @@ export const adminAPI = {
   stats: () => api.get("/api/admin/stats"),
   users: () => api.get("/api/admin/users"),
   deleteUser: (id: string) => api.delete(`/api/admin/users/${id}`),
+  setAdmin: (id: string) => api.post(`/api/admin/users/${id}/set-admin`),
   strategies: () => api.get("/api/admin/strategies"),
   deleteStrategy: (id: string) => api.delete(`/api/admin/strategies/${id}`),
   backtests: () => api.get("/api/admin/backtests"),

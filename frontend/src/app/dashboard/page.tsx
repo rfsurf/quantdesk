@@ -5,7 +5,7 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
 import GuidedTour from "@/components/GuidedTour";
-import { strategyAPI, backtestAPI, aiAPI, userAPI, defaultBacktestDates } from "@/lib/api";
+import { strategyAPI, backtestAPI, aiAPI, userAPI, authAPI, defaultBacktestDates } from "@/lib/api";
 import { StrategyItem } from "@/lib/types";
 import { useAuthStore } from "@/store";
 import {
@@ -29,6 +29,7 @@ import {
   Settings,
   Save,
   Wand2,
+  Lock,
 } from "lucide-react";
 import clsx from "clsx";
 import toast from "react-hot-toast";
@@ -61,6 +62,8 @@ function DashboardContent() {
   const [savingKey, setSavingKey] = useState(false);
   const [backtestHistory, setBacktestHistory] = useState<any[]>([]);
   const [backtestsLoading, setBacktestsLoading] = useState(false);
+  const [changePassword, setChangePassword] = useState({ old: "", new: "" });
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     if (!loading && !localStorage.getItem("qd_tour_dashboard")) {
@@ -342,6 +345,65 @@ function DashboardContent() {
                   <span className="text-gray-500 dark:text-gray-400">版本</span>
                   <span className="font-medium">v2.0</span>
                 </div>
+              </div>
+            </div>
+
+            {/* Change Password */}
+            <div className="card-glass p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 rounded-[10px] bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
+                  <Lock size={14} className="text-red-500" />
+                </div>
+                <h3 className="font-bold text-gray-900 dark:text-white">修改密码</h3>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">原密码</label>
+                  <input
+                    type="password"
+                    value={changePassword.old}
+                    onChange={(e) => setChangePassword(prev => ({ ...prev, old: e.target.value }))}
+                    className="input-horizon w-full px-3 py-2 text-sm"
+                    placeholder="输入原密码"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">新密码</label>
+                  <input
+                    type="password"
+                    value={changePassword.new}
+                    onChange={(e) => setChangePassword(prev => ({ ...prev, new: e.target.value }))}
+                    className="input-horizon w-full px-3 py-2 text-sm"
+                    placeholder="输入新密码（至少8位）"
+                  />
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!changePassword.old || !changePassword.new) {
+                      toast.error("请填写完整");
+                      return;
+                    }
+                    if (changePassword.new.length < 8) {
+                      toast.error("新密码至少8位");
+                      return;
+                    }
+                    setChangingPassword(true);
+                    try {
+                      await authAPI.changePassword(changePassword.old, changePassword.new);
+                      setChangePassword({ old: "", new: "" });
+                      toast.success("密码已更新");
+                    } catch (err: any) {
+                      toast.error(err.response?.data?.detail || "修改失败");
+                    }
+                    setChangingPassword(false);
+                  }}
+                  disabled={changingPassword}
+                  className="px-4 py-2 bg-brand-gradient text-white rounded-[14px] text-sm font-medium
+                    shadow-brand-glow-sm hover:shadow-brand-glow transition flex items-center gap-2"
+                >
+                  {changingPassword ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  {changingPassword ? "修改中..." : "修改密码"}
+                </button>
               </div>
             </div>
 
