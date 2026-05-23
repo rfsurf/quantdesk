@@ -123,17 +123,13 @@ def run_backtest(self, strategy_id: str, backtest_id: str, config: dict):
         # db.execute(...); db.commit()
 
         logger.info(
-            "backtest_done",
-            backtest_id=backtest_id,
-            sharpe=result.sharpe_ratio,
-            total_return=result.total_return,
+            f"backtest_done: backtest_id={backtest_id}, sharpe={result.sharpe_ratio}, total_return={result.total_return}"
         )
         return {"status": "done", "sharpe": result.sharpe_ratio,
                 "total_return": result.total_return}
 
     except Exception as exc:
-        logger.error("backtest_failed", backtest_id=backtest_id, error=str(exc))
-        # db.execute(update backtest set status='failed'...)
+        logger.error(f"backtest_failed: backtest_id={backtest_id}, error={exc}")
         raise self.retry(exc=exc)
 
 
