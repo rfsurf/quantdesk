@@ -124,3 +124,20 @@ def _user_to_dict(user: User) -> dict:
         "ai_calls_count": user.ai_calls_count,
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
+
+
+async def change_password_async(user_id: str, old_password: str, new_password: str, session) -> dict:
+    """修改用户密码"""
+    result = await session.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise ValueError("用户不存在")
+
+    if not verify_password(old_password, user.password_hash):
+        raise ValueError("原密码错误")
+
+    user.password_hash = hash_password(new_password)
+    await session.commit()
+    return {"message": "密码已更新"}
