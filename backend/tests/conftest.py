@@ -2,6 +2,35 @@
 QuantDesk 测试 fixtures 和公共配置
 """
 
+import sys
+import os
+import socket
+
+# 添加项目根目录到 Python 路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+
+# 设置测试环境变量（必须在导入 backend 之前）
+os.environ["QUANTDESK_JWT_SECRET"] = "test-secret-key-for-unit-tests-min-32-chars!!"
+os.environ["QUANTDESK_DEBUG"] = "true"
+os.environ["QUANTDESK_USE_POSTGRES"] = "false"
+os.environ["QUANTDESK_REDIS_URL"] = "redis://localhost:6379/0"
+os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+
+
+def redis_available():
+    """检测 Redis 是否可用"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(('localhost', 6379))
+        sock.close()
+        return result == 0
+    except:
+        return False
+
+
+REDIS_IS_AVAILABLE = redis_available()
+
 import pytest
 import pandas as pd
 import numpy as np

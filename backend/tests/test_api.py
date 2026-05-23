@@ -15,6 +15,7 @@ from jose import jwt
 
 from backend.app import app
 from backend.dependencies import JWT_SECRET, JWT_ALGORITHM, hash_password
+from backend.tests.conftest import REDIS_IS_AVAILABLE
 
 client = TestClient(app)
 
@@ -359,6 +360,7 @@ def test_upgrade_invalid_plan():
 # Backtest — user history
 # ===========================================================================
 
+@pytest.mark.skipif(not REDIS_IS_AVAILABLE, reason="Redis not running on localhost:6379")
 def test_list_user_backtests():
     h = _auth()
     r = client.post("/api/strategies", json={
@@ -376,6 +378,7 @@ def test_list_user_backtests():
     assert items[0]["strategy_name"] == "回测历史测试"
 
 
+@pytest.mark.skipif(not REDIS_IS_AVAILABLE, reason="Redis not running on localhost:6379")
 def test_backtests_isolation():
     hA = _auth("a2@test.com")
     r = client.post("/api/strategies", json={
