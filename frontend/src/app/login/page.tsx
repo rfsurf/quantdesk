@@ -152,8 +152,10 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => setIsRegister(!isRegister)}
-              className="text-sm text-brand-600 dark:text-brand-400 font-medium
-                hover:underline transition"
+              className="text-sm font-semibold
+                text-brand-500 dark:text-brand-300
+                hover:text-brand-600 dark:hover:text-brand-200
+                transition-colors duration-200"
             >
               {isRegister ? "已有账号？去登录" : "没有账号？免费注册"}
             </button>

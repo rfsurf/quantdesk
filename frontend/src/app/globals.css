@@ -12,7 +12,8 @@
     --text-secondary: #67748E;
     --text-muted: #A0AEC0;
     --border-color: rgba(112, 144, 176, 0.08);
-    --border-subtle: rgba(112, 144, 176, 0.12);
+    --border-subtle: rgba(112, 144, 176, 0.25);  /* 从 0.12 增强到 0.25 */
+    --border-input: rgba(112, 144, 176, 0.40);   /* 新增：输入框专用 */
     --shadow-card: 0px 2px 8px rgba(112, 144, 176, 0.12);
     --shadow-hover: 0px 6px 20px rgba(112, 144, 176, 0.18);
   }
@@ -26,7 +27,8 @@
     --text-secondary: #A0AEC0;
     --text-muted: #67748E;
     --border-color: rgba(255, 255, 255, 0.06);
-    --border-subtle: rgba(255, 255, 255, 0.1);
+    --border-subtle: rgba(255, 255, 255, 0.20);  /* 从 0.1 增强到 0.20 */
+    --border-input: rgba(255, 255, 255, 0.35);   /* 新增：输入框专用 */
     --shadow-card: 0px 2px 8px rgba(0, 0, 0, 0.35);
     --shadow-hover: 0px 6px 20px rgba(0, 0, 0, 0.45);
   }
@@ -94,17 +96,28 @@
 
   /* Input Focus Ring */
   .input-horizon {
-    border: 1px solid var(--border-subtle);
+    border: 1.5px solid var(--border-input);
     border-radius: 16px;
     background: var(--bg-card);
     color: var(--text-primary);
-    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
   }
 
   .input-horizon:focus {
-    border-color: #868CFF;
-    box-shadow: 0px 0px 0px 3px rgba(134, 140, 255, 0.15);
+    border-color: #7551FF;
+    box-shadow: 0px 0px 0px 3px rgba(117, 81, 255, 0.2);
+    background: var(--bg-card);
     outline: none;
+  }
+
+  .input-horizon.error {
+    border-color: #ef4444;
+    box-shadow: 0px 0px 0px 3px rgba(239, 68, 68, 0.15);
+  }
+
+  .input-horizon.error:focus {
+    border-color: #dc2626;
+    box-shadow: 0px 0px 0px 3px rgba(220, 38, 38, 0.2);
   }
 
   /* Tag / Badge */
