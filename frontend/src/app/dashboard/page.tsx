@@ -66,10 +66,11 @@ function DashboardContent() {
   const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
-    if (!loading && !localStorage.getItem("qd_tour_dashboard")) {
+    // 只在策略列表Tab（默认Tab）显示引导，避免遮挡其他Tab内容
+    if (!loading && activeTab === "strategies" && !localStorage.getItem("qd_tour_dashboard")) {
       setShowTour(true);
     }
-  }, [loading]);
+  }, [loading, activeTab]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
