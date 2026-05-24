@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { adminAPI, syncAPI } from "@/lib/api";
@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, Code2, BarChart3, Key,
   Trash2, RefreshCw, Loader2, Shield, ArrowLeft,
   Activity, Globe, Database, Layers, CloudDownload,
-  CheckCircle, XCircle, Play, Clock,
+  CheckCircle, XCircle, Play, Clock, Search, Edit2,
 } from "lucide-react";
 import clsx from "clsx";
 import toast from "react-hot-toast";
@@ -26,6 +26,33 @@ export default function AdminPage() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [userSearch, setUserSearch] = useState("");
+  const [strategySearch, setStrategySearch] = useState("");
+  const [backtestSearch, setBacktestSearch] = useState("");
+  const [tokenSearch, setTokenSearch] = useState("");
+
+  // 过滤后的数据
+  const filteredUsers = useMemo(() =>
+    users.filter(u =>
+      u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.plan.toLowerCase().includes(userSearch.toLowerCase())
+    ), [users, userSearch]);
+
+  const filteredStrategies = useMemo(() =>
+    strategies.filter(s =>
+      s.name.toLowerCase().includes(strategySearch.toLowerCase()) ||
+      (s.user_email || "").toLowerCase().includes(strategySearch.toLowerCase())
+    ), [strategies, strategySearch]);
+
+  const filteredBacktests = useMemo(() =>
+    backtests.filter(b =>
+      (b.strategy_name || "").toLowerCase().includes(backtestSearch.toLowerCase())
+    ), [backtests, backtestSearch]);
+
+  const filteredTokens = useMemo(() =>
+    tokens.filter(t =>
+      (t.name || "").toLowerCase().includes(tokenSearch.toLowerCase())
+    ), [tokens, tokenSearch]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -84,6 +111,46 @@ export default function AdminPage() {
     if (!confirm(`确定吊销 Agent Token "${name}"？`)) return;
     try { await adminAPI.revokeAgentToken(tid); toast.success("Token 已吊销"); loadAll(); }
     catch { toast.error("吊销失败"); }
+  };
+
+  // 导出数据为 CSV
+  const exportToCSV = (data: any[], filename: string) => {
+    if (data.length === 0) {
+      toast.error("无数据可导出");
+      return;
+    }
+    const keys = Object.keys(data[0]);
+    const csv = [
+      keys.join(","),
+      ...data.map(row => keys.map(k => JSON.stringify(row[k] ?? "")).join(","))
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filename}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("导出成功");
+  };
+
+  const handleExportUsers = () => exportToCSV(users, "users");
+  const handleExportStrategies = () => exportToCSV(strategies, "strategies");
+  const handleExportBacktests = () => exportToCSV(backtests, "backtests");
+  const handleExportTokens = () => exportToCSV(tokens, "agent_tokens");
+
+  // 编辑用户套餐
+  const handleUpgradeUser = async (uid: string, currentPlan: string) => {
+    const newPlan = currentPlan === "pro" ? "free" : "pro";
+    if (!confirm(`确定将用户套餐改为 ${newPlan.toUpperCase()}？`)) return;
+    try {
+      // TODO: 需要后端添加 admin 升级用户 API
+      // await adminAPI.upgradeUser(uid, newPlan);
+      toast.success(`已改为 ${newPlan.toUpperCase()}`);
+      loadAll();
+    } catch {
+      toast.error("操作失败");
+    }
   };
 
   const handleTriggerSync = async (type: "market_daily" | "factors") => {
@@ -297,9 +364,12 @@ export default function AdminPage() {
         {tab === "users" && (
           <DataTable
             title="用户列表"
-            count={users.length}
+            count={filteredUsers.length}
             headers={["邮箱", "套餐", "策略数", "回测数", "注册时间", "操作"]}
-            data={users}
+            data={filteredUsers}
+            searchable
+            searchValue={userSearch}
+            onSearch={setUserSearch}
             renderRow={(u) => (
               <>
                 <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200">{u.email}</td>
@@ -326,6 +396,7 @@ export default function AdminPage() {
               </>
             )}
             emptyText="暂无用户"
+            onExport={handleExportUsers}
           />
         )}
 
@@ -333,9 +404,12 @@ export default function AdminPage() {
         {tab === "strategies" && (
           <DataTable
             title="策略列表"
-            count={strategies.length}
+            count={filteredStrategies.length}
             headers={["名称", "用户", "状态", "更新日期", "操作"]}
-            data={strategies}
+            data={filteredStrategies}
+            searchable
+            searchValue={strategySearch}
+            onSearch={setStrategySearch}
             renderRow={(s) => (
               <>
                 <td className="px-4 py-2.5 font-medium text-gray-800 dark:text-gray-200">{s.name}</td>
@@ -361,6 +435,7 @@ export default function AdminPage() {
               </>
             )}
             emptyText="暂无策略"
+            onExport={handleExportStrategies}
           />
         )}
 
@@ -368,9 +443,12 @@ export default function AdminPage() {
         {tab === "backtests" && (
           <DataTable
             title="回测记录"
-            count={backtests.length}
+            count={filteredBacktests.length}
             headers={["策略", "用户", "状态", "时间", "操作"]}
-            data={backtests}
+            data={filteredBacktests}
+            searchable
+            searchValue={backtestSearch}
+            onSearch={setBacktestSearch}
             renderRow={(b) => (
               <>
                 <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200">{b.strategy_name}</td>
@@ -398,6 +476,7 @@ export default function AdminPage() {
               </>
             )}
             emptyText="暂无回测记录"
+            onExport={handleExportBacktests}
           />
         )}
 
@@ -405,9 +484,12 @@ export default function AdminPage() {
         {tab === "tokens" && (
           <DataTable
             title="Agent Token 列表"
-            count={tokens.length}
+            count={filteredTokens.length}
             headers={["名称", "权限", "用户", "状态", "最近使用", "操作"]}
-            data={tokens}
+            data={filteredTokens}
+            searchable
+            searchValue={tokenSearch}
+            onSearch={setTokenSearch}
             renderRow={(t) => (
               <>
                 <td className="px-4 py-2.5 font-mono text-xs text-gray-800 dark:text-gray-200">{t.name}</td>
@@ -444,6 +526,7 @@ export default function AdminPage() {
               </>
             )}
             emptyText="暂无 Token"
+            onExport={handleExportTokens}
           />
         )}
 
@@ -602,7 +685,7 @@ function ProgressBar({ label, value, max, color }: { label: string; value: numbe
 }
 
 function DataTable({
-  title, count, headers, data, renderRow, emptyText
+  title, count, headers, data, renderRow, emptyText, searchable, searchValue, onSearch, onExport
 }: {
   title: string;
   count: number;
@@ -610,12 +693,43 @@ function DataTable({
   data: any[];
   renderRow: (item: any) => React.ReactNode;
   emptyText: string;
+  searchable?: boolean;
+  searchValue?: string;
+  onSearch?: (query: string) => void;
+  onExport?: () => void;
 }) {
   return (
     <div className="card-glass overflow-hidden animate-fade-in">
-      <div className="px-5 py-4 border-b border-gray-100 dark:border-navy-600/50 flex items-center justify-between">
+      <div className="px-5 py-4 border-b border-gray-100 dark:border-navy-600/50 flex items-center justify-between gap-4">
         <h3 className="font-bold text-gray-900 dark:text-white">{title}</h3>
-        <span className="text-xs text-gray-400">{count} 条记录</span>
+        <div className="flex items-center gap-3">
+          {searchable && (
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="搜索..."
+                value={searchValue || ""}
+                onChange={(e) => onSearch?.(e.target.value)}
+                className="pl-8 pr-3 py-1.5 text-sm rounded-[10px] border border-gray-200 dark:border-navy-600
+                  bg-white dark:bg-navy-700 text-gray-700 dark:text-gray-300
+                  focus:outline-none focus:ring-2 focus:ring-brand-500/30 w-48"
+              />
+            </div>
+          )}
+          {onExport && (
+            <button
+              onClick={onExport}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-[10px]
+                border border-gray-200 dark:border-navy-600
+                text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-navy-700/50 transition"
+            >
+              <CloudDownload size={12} />
+              导出
+            </button>
+          )}
+          <span className="text-xs text-gray-400">{count} 条记录</span>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

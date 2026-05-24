@@ -411,6 +411,23 @@ function DashboardContent() {
             {/* Plan */}
             <div className="card-glass p-6">
               <h3 className="font-bold text-gray-900 dark:text-white mb-4">套餐与 AI 额度</h3>
+
+              {/* 套餐对比表 */}
+              <div className="mb-4 p-3 bg-gray-50 dark:bg-navy-700/40 rounded-[12px]">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="font-semibold text-gray-700 dark:text-gray-300">Free</div>
+                    <div className="text-xs text-gray-500">AI 0次 · 基础功能</div>
+                    <div className="text-xs text-gray-400 mt-1">¥0/月</div>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-amber-600">Pro</div>
+                    <div className="text-xs text-gray-500">AI 500次 · 全功能</div>
+                    <div className="text-xs text-amber-500 mt-1 font-medium">¥99/月</div>
+                  </div>
+                </div>
+              </div>
+
               {aiSettings ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -447,7 +464,7 @@ function DashboardContent() {
                           rounded-[14px] text-sm font-medium hover:bg-amber-600 transition"
                       >
                         <Zap size={14} />
-                        升级 Pro（500次/月）
+                        升级 Pro（¥99/月，500次）
                       </button>
                     )}
                     {aiSettings.plan === "pro" && (

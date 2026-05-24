@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store";
@@ -9,6 +10,20 @@ export default function Navbar() {
   const { user, logout } = useAuthStore();
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
+
+  // 从 JWT token 解析套餐信息（仅在客户端）
+  const [plan, setPlan] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      setPlan(payload.plan || null);
+    } catch {
+      setPlan(null);
+    }
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -64,7 +79,7 @@ export default function Navbar() {
           <span>管理</span>
         </Link>
 
-        {/* User */}
+        {/* User + Plan Badge */}
         {user && (
           <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-[12px]
             bg-gray-50 dark:bg-navy-700/60">
@@ -74,6 +89,15 @@ export default function Navbar() {
             <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">
               {user.email}
             </span>
+            {plan && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-[6px] font-semibold ${
+                plan === "pro"
+                  ? "bg-brand-100 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400"
+                  : "bg-gray-200 dark:bg-navy-600 text-gray-500 dark:text-gray-400"
+              }`}>
+                {plan.toUpperCase()}
+              </span>
+            )}
           </div>
         )}
 
