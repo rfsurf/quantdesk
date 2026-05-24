@@ -90,6 +90,33 @@ async def admin_set_admin_role(uid: str, user_id: str = Depends(get_current_user
 @router.get("/users")
 async def admin_list_users(user_id: str = Depends(get_current_user_id)):
     check_admin(user_id)
+
+    if settings.USE_POSTGRES:
+        # PostgreSQL 模式：从数据库查询
+        with sync_engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT u.id, u.email, u.plan, u.is_admin, u.created_at
+                FROM users u
+                ORDER BY u.created_at DESC
+            """)).fetchall()
+            result = []
+            for r in rows:
+                # 单独查询每个用户的策略数和回测数
+                strategy_count = conn.execute(text(
+                    "SELECT COUNT(*) FROM strategies WHERE user_id = :uid"
+                ), {"uid": r.id}).scalar() or 0
+                backtest_count = conn.execute(text(
+                    "SELECT COUNT(*) FROM backtests b JOIN strategies s ON b.strategy_id = s.id WHERE s.user_id = :uid"
+                ), {"uid": r.id}).scalar() or 0
+                result.append({
+                    "id": str(r.id), "email": r.email, "plan": r.plan or "free",
+                    "is_admin": r.is_admin, "strategy_count": strategy_count,
+                    "backtest_count": backtest_count,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                })
+        return {"items": result, "total": len(result)}
+
+    # 内存模式
     result = []
     for email, u in _users.items():
         strategies = [s for s in _strategies.values() if s["user_id"] == u["id"]]
@@ -126,6 +153,26 @@ async def admin_delete_user(uid: str, user_id: str = Depends(get_current_user_id
 @router.get("/strategies")
 async def admin_list_all_strategies(user_id: str = Depends(get_current_user_id)):
     check_admin(user_id)
+
+    if settings.USE_POSTGRES:
+        # PostgreSQL 模式：从数据库查询
+        with sync_engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT s.id, s.name, s.status, s.stage, s.user_id, s.created_at, s.updated_at,
+                       u.email as user_email
+                FROM strategies s
+                LEFT JOIN users u ON s.user_id = u.id
+                ORDER BY s.updated_at DESC
+            """)).fetchall()
+            result = [{
+                "id": r.id, "name": r.name, "status": r.status, "stage": r.stage or "draft",
+                "user_id": r.user_id, "user_email": r.user_email or "unknown",
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            } for r in rows]
+        return {"items": result, "total": len(result)}
+
+    # 内存模式
     result = []
     for sid, s in _strategies.items():
         user = find_user_by_id(s["user_id"])
@@ -154,6 +201,27 @@ async def admin_delete_strategy(sid: str, user_id: str = Depends(get_current_use
 @router.get("/backtests")
 async def admin_list_all_backtests(user_id: str = Depends(get_current_user_id)):
     check_admin(user_id)
+
+    if settings.USE_POSTGRES:
+        # PostgreSQL 模式：从数据库查询（用户通过 strategy 关联）
+        with sync_engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT b.id, b.status, b.created_at,
+                       s.name as strategy_name, s.user_id, u.email as user_email
+                FROM backtests b
+                LEFT JOIN strategies s ON b.strategy_id = s.id
+                LEFT JOIN users u ON s.user_id = u.id
+                ORDER BY b.created_at DESC
+            """)).fetchall()
+            result = [{
+                "id": r.id, "status": r.status,
+                "strategy_name": r.strategy_name or "unknown",
+                "user_email": r.user_email or "unknown",
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            } for r in rows]
+        return {"items": result, "total": len(result)}
+
+    # 内存模式
     result = []
     for bid, b in _backtests.items():
         strategy = _strategies.get(b.get("strategy_id", ""), {})
@@ -180,6 +248,26 @@ async def admin_delete_backtest(bid: str, user_id: str = Depends(get_current_use
 @router.get("/agent-tokens")
 async def admin_list_all_agent_tokens(user_id: str = Depends(get_current_user_id)):
     check_admin(user_id)
+
+    if settings.USE_POSTGRES:
+        # PostgreSQL 模式：从数据库查询
+        with sync_engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT t.id, t.name, t.scopes, t.is_revoked, t.user_id,
+                       t.created_at, t.last_used_at, u.email as user_email
+                FROM agent_tokens t
+                LEFT JOIN users u ON t.user_id = u.id
+                ORDER BY t.created_at DESC
+            """)).fetchall()
+            result = [{
+                "id": str(r.id), "name": r.name, "scopes": r.scopes,
+                "is_revoked": r.is_revoked, "user_email": r.user_email or "unknown",
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
+            } for r in rows]
+        return {"items": result, "total": len(result)}
+
+    # 内存模式
     result = []
     for hashed, t in _agent_tokens.items():
         user = find_user_by_id(t["user_id"])
