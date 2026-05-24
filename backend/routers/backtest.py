@@ -64,19 +64,16 @@ async def trigger_backtest(
     task_id = str(uuid.uuid4())
     _backtests[task_id] = {
         "id": task_id, "strategy_id": sid, "user_id": user_id,
-        "status": "pending", "params": body.model_dump(mode="json"),
+        "status": "pending", "params": {**s["config"], **body.model_dump(mode="json")},
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    # 启动 Celery 异步任务
-    celery_task = run_backtest.apply_async(
-        args=[sid, task_id, {**s["config"], **body.model_dump(mode="json")}],
-        task_id=task_id,
-    )
-    _backtests[task_id]["celery_task_id"] = celery_task.id
-    _backtests[task_id]["status"] = "running"
+    # MVP阶段：同步执行回测（确保结果完整存储到 _backtests）
+    # 后续可改为 Celery 异步，但需确保 Worker 写入完整结果
+    from ..dependencies import execute_backtest
+    execute_backtest(task_id)
 
-    return BacktestTaskResponse(task_id=task_id, estimated_duration_s=15)
+    return BacktestTaskResponse(task_id=task_id, estimated_duration_s=3)
 
 
 @router.get("/backtest/{task_id}", response_model=BacktestResultResponse)
@@ -84,6 +81,23 @@ async def get_backtest_result(task_id: str, user_id: str = Depends(get_current_u
     bt = _backtests.get(task_id)
     if not bt or bt["user_id"] != user_id:
         raise HTTPException(404)
+
+    # 从 Celery Redis 拉取真实结果（修复结果为空问题）
+    celery_task_id = bt.get("celery_task_id")
+    if celery_task_id and bt.get("status") == "running":
+        try:
+            task_result = celery_app.AsyncResult(celery_task_id)
+            if task_result.ready():
+                if task_result.successful():
+                    res = task_result.result or {}
+                    bt["status"] = "done"
+                    bt["result"] = res
+                elif task_result.failed():
+                    bt["status"] = "failed"
+                    bt["error_message"] = str(task_result.result)
+        except Exception:
+            pass
+
     return BacktestResultResponse(
         backtest_id=task_id,
         status=bt["status"],
@@ -119,12 +133,50 @@ async def list_user_backtests(user_id: str = Depends(get_current_user_id)):
     mine.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     result = []
     for bt in mine:
-        s = _strategies.get(bt.get("strategy_id", ""), {})
+        # 从 PostgreSQL 查策略名称（修复"未知策略"问题）
+        strategy_name = "未知策略"
+        if settings.USE_POSTGRES:
+            from ..database import sync_engine
+            from sqlalchemy import text
+            try:
+                with sync_engine.connect() as conn:
+                    r = conn.execute(
+                        text("SELECT name FROM strategies WHERE id = :sid"),
+                        {"sid": bt.get("strategy_id")}
+                    )
+                    row = r.fetchone()
+                    if row:
+                        strategy_name = row[0]
+            except Exception:
+                pass
+        else:
+            s = _strategies.get(bt.get("strategy_id", ""), {})
+            strategy_name = s.get("name", "未知策略")
+
+        # 从 Celery Redis 拉取真实状态（修复状态永远"running"问题）
+        celery_task_id = bt.get("celery_task_id")
+        real_status = bt.get("status", "running")
+        if celery_task_id and real_status == "running":
+            try:
+                task_result = celery_app.AsyncResult(celery_task_id)
+                if task_result.ready():
+                    if task_result.successful():
+                        res = task_result.result or {}
+                        bt["status"] = "done"
+                        bt["result"] = res
+                        real_status = "done"
+                    elif task_result.failed():
+                        bt["status"] = "failed"
+                        bt["error_message"] = str(task_result.result)
+                        real_status = "failed"
+            except Exception:
+                pass
+
         result.append({
             "id": bt["id"],
             "strategy_id": bt.get("strategy_id"),
-            "strategy_name": s.get("name", "未知策略"),
-            "status": bt["status"],
+            "strategy_name": strategy_name,
+            "status": real_status,
             "created_at": bt.get("created_at"),
             "result": bt.get("result"),
             "error_message": bt.get("error_message"),

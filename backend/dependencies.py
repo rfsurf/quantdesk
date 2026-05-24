@@ -269,6 +269,7 @@ def execute_backtest(task_id: str):
     """同步执行回测（MVP阶段，后续改为Celery异步）"""
     import numpy as np
     import pandas as pd
+    from .config import settings
 
     bt = _backtests.get(task_id)
     if not bt:
@@ -277,9 +278,24 @@ def execute_backtest(task_id: str):
     bt["status"] = "running"
 
     try:
-        s = _strategies.get(bt["strategy_id"])
-        if not s:
-            raise ValueError("策略不存在")
+        # 支持 PostgreSQL 和内存模式
+        strategy_id = bt["strategy_id"]
+        if settings.USE_POSTGRES:
+            from .database import sync_engine
+            from sqlalchemy import text
+            with sync_engine.connect() as conn:
+                r = conn.execute(
+                    text("SELECT id, user_id, name, config, status FROM strategies WHERE id = :sid"),
+                    {"sid": strategy_id}
+                )
+                row = r.fetchone()
+                if not row:
+                    raise ValueError("策略不存在")
+                s = {"id": str(row[0]), "user_id": str(row[1]), "name": row[2], "config": row[3] or {}, "status": row[4]}
+        else:
+            s = _strategies.get(strategy_id)
+            if not s:
+                raise ValueError("策略不存在")
 
         from .core import BacktestConfig
         from .backtest_engine import BacktestEngine
